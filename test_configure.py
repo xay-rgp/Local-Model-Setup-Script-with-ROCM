@@ -32,7 +32,8 @@ class ConfigurationTests(unittest.TestCase):
     def test_existing_settings_and_plugins_are_preserved(self):
         original = {'theme': 'dark', 'permissions': {'deny': ['Bash(rm *)']},
                     'enabledPlugins': {'example@market': True},
-                    'env': {'UNRELATED': 'preserve', 'ANTHROPIC_MODEL': 'old-model'}}
+                    'env': {'UNRELATED': 'preserve', 'ANTHROPIC_MODEL': 'old-model',
+                            'DISABLE_AUTO_COMPACT': '1'}}
         self.write('.claude/settings.json', original)
         self.write('.pi/agent/settings.json', {'packages': ['git:example/repo'], 'theme': 'dark'})
         self.write('.pi/agent/models.json', {'providers': {'other': {'baseUrl': 'https://example.test'}}})
@@ -42,6 +43,7 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(actual[key], original[key])
         self.assertEqual(actual['env']['UNRELATED'], 'preserve')
         self.assertNotIn('ANTHROPIC_MODEL', actual['env'])
+        self.assertNotIn('DISABLE_AUTO_COMPACT', actual['env'])
         self.assertEqual(self.read('.pi/agent/settings.json')['packages'], ['git:example/repo'])
         self.assertIn('other', self.read('.pi/agent/models.json')['providers'])
         backups = list((self.home / '.claude').glob('settings.json.backup-*'))
@@ -49,6 +51,7 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_second_run_changes_nothing(self):
         self.run_configuration()
+        self.assertNotIn('DISABLE_AUTO_COMPACT', self.read('.claude/settings.json')['env'])
         before = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
                   for p in self.home.rglob('*') if p.is_file()}
         self.run_configuration()

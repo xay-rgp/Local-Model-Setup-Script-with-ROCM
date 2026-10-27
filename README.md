@@ -54,13 +54,13 @@ After applying this fix with `--configure-only`, restart Pi, resume the affected
 session, and run `/compact` before continuing. Responses can still be truncated
 if they exceed the output limit.
 
-Claude Code automatic compaction is disabled with `DISABLE_AUTO_COMPACT=1`.
-Local models can mistakenly carry the summarizer's internal “do not call any
-tools” instruction into the conversation summary as a user restriction, causing
-later requests to refuse tool use. After applying this fix, exit Claude and
-start a fresh session without resuming the affected conversation. Long sessions
-will need fresh conversations when the context fills; manual `/compact` can
-still produce the same faulty summary.
+Claude Code automatic compaction is left enabled. Setup removes
+`DISABLE_AUTO_COMPACT` from Claude's settings, including the override written
+by older setup runs, so it can summarize history as the context fills.
+After applying this fix with `--configure-only`, restart Claude Code and use
+`/compact` on a full conversation, or `/clear` to start fresh. If a local model's
+summary incorrectly carries internal instructions into later requests and
+interferes with tool use, start a fresh conversation.
 
 `bash setup.sh --configure-only` updates agent settings and Bash/Fish PATH
 files without downloading, installing plugins, or restarting Ollama. Use this
@@ -84,7 +84,8 @@ find Node in non-interactive shells.
 - Claude Code: official native installer into the current user's home.
 - Pi: npm installation under `~/.local/npm` (without dependency install scripts).
 - `~/.claude/settings.json`: local endpoint, context/output limits, model menu,
-  default and background model mappings, and disabled automatic compaction.
+  default and background model mappings, and removal of the automatic compaction
+  disable override.
   All aliases initially use the default.
 - `~/.pi/agent/models.json` and `settings.json`: Ollama model list, default,
   context/output limits, and compaction overrides for every configured model.
