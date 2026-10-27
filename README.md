@@ -8,8 +8,8 @@ it is not an Ubuntu, NVIDIA, macOS, or Windows installer.
 ## Run from Bash or Fish
 
 ```sh
-bash /home/xay/LocalModelSetupScript/setup.sh --dry-run
-bash /home/xay/LocalModelSetupScript/setup.sh
+bash /home/xay/Local-Model-Setup-Script-with-ROCM/setup.sh --dry-run
+bash /home/xay/Local-Model-Setup-Script-with-ROCM/setup.sh
 ```
 
 Run as your regular user, **not** `sudo bash`. The script requests sudo for
@@ -104,7 +104,7 @@ checks `/api/ps` GPU allocation, and checks ROCm detection in the current
 systemd invocation's logs. This verifies inference, not agent tool-call quality.
 Other models are downloaded and listed but are not loaded for inference tests.
 
-Validation when created: all six offline configuration tests passed, Bash and
+Validation: all eight offline configuration tests passed, Bash and
 Python syntax checks passed, generated Fish configuration parsed successfully,
 and dry-run completed. The full installer has not been executed end to end;
 no packages or live agent settings were changed while creating these files.
@@ -112,7 +112,7 @@ no packages or live agent settings were changed while creating these files.
 Offline development checks (no system changes):
 
 ```sh
-cd /home/xay/LocalModelSetupScript
+cd /home/xay/Local-Model-Setup-Script-with-ROCM
 bash -n setup.sh config.sh
 python -m unittest -v test_configure.py
 bash setup.sh --dry-run
