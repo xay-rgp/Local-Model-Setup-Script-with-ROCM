@@ -69,6 +69,9 @@ def configure(home, models, default, context, max_output):
         'ANTHROPIC_DEFAULT_FABLE_MODEL': default,
         'CLAUDE_CODE_MAX_CONTEXT_TOKENS': str(context),
         'CLAUDE_CODE_MAX_OUTPUT_TOKENS': str(max_output),
+        # Local models can mistake the compaction prompt's tool prohibition
+        # for a lasting user instruction and carry it into the summary.
+        'DISABLE_AUTO_COMPACT': '1',
     })
     # Let /model save a different choice instead of forcing the original model
     # again at every startup through a higher-priority environment variable.

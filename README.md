@@ -54,6 +54,14 @@ After applying this fix with `--configure-only`, restart Pi, resume the affected
 session, and run `/compact` before continuing. Responses can still be truncated
 if they exceed the output limit.
 
+Claude Code automatic compaction is disabled with `DISABLE_AUTO_COMPACT=1`.
+Local models can mistakenly carry the summarizer's internal “do not call any
+tools” instruction into the conversation summary as a user restriction, causing
+later requests to refuse tool use. After applying this fix, exit Claude and
+start a fresh session without resuming the affected conversation. Long sessions
+will need fresh conversations when the context fills; manual `/compact` can
+still produce the same faulty summary.
+
 `bash setup.sh --configure-only` updates agent settings and Bash/Fish PATH
 files without downloading, installing plugins, or restarting Ollama. Use this
 only if the models are already installed and the service already has the
@@ -76,7 +84,8 @@ find Node in non-interactive shells.
 - Claude Code: official native installer into the current user's home.
 - Pi: npm installation under `~/.local/npm` (without dependency install scripts).
 - `~/.claude/settings.json`: local endpoint, context/output limits, model menu,
-  default and background model mappings. All aliases initially use the default.
+  default and background model mappings, and disabled automatic compaction.
+  All aliases initially use the default.
 - `~/.pi/agent/models.json` and `settings.json`: Ollama model list, default,
   context/output limits, and compaction overrides for every configured model.
 - `~/.ollama/config.json`: Claude and Pi launch selections.
