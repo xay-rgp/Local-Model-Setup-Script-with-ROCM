@@ -88,6 +88,16 @@ def configure(home, models, default, context, max_output):
                    for name in models],
     })
     data['pi_settings'].update({'defaultProvider': 'ollama', 'defaultModel': default})
+    # Leave room for generation and summaries, and retain less history than
+    # the compaction threshold. Pi's 20k default can leave nothing to compact
+    # with a 32k local context. Scale down for smaller configured contexts.
+    reserve = max(max_output, min(16384, context // 2))
+    keep_recent = min(4096, (context - reserve) // 2)
+    overrides = data['pi_settings'].setdefault('compaction', {}).setdefault('modelOverrides', {})
+    for name in models:
+        overrides.setdefault(f'ollama/{name}', {}).update({
+            'reserveTokens': reserve, 'keepRecentTokens': keep_recent,
+        })
     integrations = data['ollama'].setdefault('integrations', {})
     ordered = [default] + [name for name in models if name != default]
     for agent in ['claude', 'pi']:

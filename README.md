@@ -44,6 +44,16 @@ model downloads**; remove unwanted ones yourself with `ollama rm NAME`.
 Use local models with tool support and a context window at least as large as
 CONTEXT_LENGTH. The generated Pi entries default to text input.
 
+Both models also receive Pi compaction overrides: with the default context,
+16,384 tokens are reserved and 4,096 tokens of recent history are retained.
+This leaves room for responses and summaries and avoids retaining too much
+history to compact a smaller local session. The limits scale down for smaller
+contexts, and the reserve is always at least `MAX_OUTPUT_TOKENS`. Unrelated
+model overrides and an explicitly disabled compaction preference are preserved.
+After applying this fix with `--configure-only`, restart Pi, resume the affected
+session, and run `/compact` before continuing. Responses can still be truncated
+if they exceed the output limit.
+
 `bash setup.sh --configure-only` updates agent settings and Bash/Fish PATH
 files without downloading, installing plugins, or restarting Ollama. Use this
 only if the models are already installed and the service already has the
@@ -67,7 +77,8 @@ find Node in non-interactive shells.
 - Pi: npm installation under `~/.local/npm` (without dependency install scripts).
 - `~/.claude/settings.json`: local endpoint, context/output limits, model menu,
   default and background model mappings. All aliases initially use the default.
-- `~/.pi/agent/models.json` and `settings.json`: Ollama model list and default.
+- `~/.pi/agent/models.json` and `settings.json`: Ollama model list, default,
+  context/output limits, and compaction overrides for every configured model.
 - `~/.ollama/config.json`: Claude and Pi launch selections.
 - Bash startup files plus `~/.config/fish/conf.d/local-model-setup.fish`:
   make the installed agent commands available in new terminals.

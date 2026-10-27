@@ -56,6 +56,36 @@ class ConfigurationTests(unittest.TestCase):
                  for p in self.home.rglob('*') if p.is_file()}
         self.assertEqual(before, after)
 
+    def test_both_models_get_limits_and_compaction_without_losing_preferences(self):
+        unrelated = {'reserveTokens': 10000, 'keepRecentTokens': 5000}
+        self.write('.pi/agent/settings.json', {'compaction': {
+            'enabled': False, 'keepRecentTokens': 20000,
+            'modelOverrides': {'other/model': unrelated},
+        }})
+        self.run_configuration()
+        models = self.read('.pi/agent/models.json')['providers']['ollama']['models']
+        compaction = self.read('.pi/agent/settings.json')['compaction']
+        self.assertFalse(compaction['enabled'])
+        self.assertEqual(compaction['keepRecentTokens'], 20000)
+        self.assertEqual(compaction['modelOverrides']['other/model'], unrelated)
+        self.assertEqual([model['id'] for model in models], self.models)
+        for model in models:
+            self.assertEqual((model['contextWindow'], model['maxTokens']), (32768, 8192))
+            self.assertEqual(compaction['modelOverrides']['ollama/' + model['id']], {
+                'reserveTokens': 16384, 'keepRecentTokens': 4096,
+            })
+
+    def test_compaction_scales_to_smaller_context_and_larger_output(self):
+        for context, output in [(8192, 2048), (32768, 24576)]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                configure(self.home, self.models, self.models[0], context, output)
+            overrides = self.read('.pi/agent/settings.json')['compaction']['modelOverrides']
+            for name in self.models:
+                limits = overrides['ollama/' + name]
+                self.assertGreaterEqual(limits['reserveTokens'], output)
+                self.assertLess(limits['reserveTokens'], context)
+                self.assertLess(limits['keepRecentTokens'], context - limits['reserveTokens'])
+
     def test_switching_models_updates_both_agents(self):
         self.run_configuration()
         self.run_configuration(['example/new-model:latest'])
