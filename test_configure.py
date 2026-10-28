@@ -124,6 +124,17 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('. "$HOME/.bashrc"', profile)
         self.assertIn('fish_add_path', (self.home / '.config/fish/conf.d/local-model-setup.fish').read_text())
 
+    def test_all_three_models_receive_full_context(self):
+        models = self.models + ['huihui_ai/Qwen3.8-abliterated:27b']
+        with contextlib.redirect_stdout(io.StringIO()):
+            configure(self.home, models, models[0], 262144, 8192)
+        claude = self.read('.claude/settings.json')
+        self.assertEqual(claude['env']['CLAUDE_CODE_MAX_CONTEXT_TOKENS'], '262144')
+        self.assertEqual([m['model'] for m in claude['modelPicker']['options']], models)
+        pi = self.read('.pi/agent/models.json')['providers']['ollama']['models']
+        self.assertEqual({m['id']: m['contextWindow'] for m in pi},
+                         dict.fromkeys(models, 262144))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,6 +1,6 @@
 # Local model setup: Arch Linux + AMD ROCm
 
-Installs Ollama with ROCm, your two models, Claude Code, Pi coding agent, and
+Installs Ollama with ROCm, your three models, Claude Code, Pi coding agent, and
 Ponytail in both agents. Written for your Arch Linux x86_64 / RX 9060 XT setup.
 It can also run on another Arch x86_64 machine with a supported AMD GPU;
 it is not an Ubuntu, NVIDIA, macOS, or Windows installer.
@@ -16,7 +16,7 @@ Run as your regular user, **not** `sudo bash`. The script requests sudo for
 system packages, the service configuration, and reading GPU verification logs.
 It performs `pacman -Syu --needed ...` (a full Arch upgrade) with pacman's usual
 confirmation, then enables/restarts Ollama. Finish active generations first.
-Downloads include roughly 36 GB of model files plus ROCm and agent packages;
+Downloads include the three model files plus ROCm and agent packages;
 existing Ollama blobs are reused. Internet access is required.
 
 Open a fresh terminal afterward and run `claude` or `pi`. Both use local
@@ -32,9 +32,10 @@ Edit **config.sh**, the only file needed for ordinary changes:
 MODELS=(
   "qwen3-coder:30b"
   "orcarouter/Qwen3.8-27B-Uncensored:latest"
+  "huihui_ai/Qwen3.8-abliterated:27b"
 )
 DEFAULT_MODEL="${MODELS[0]}"
-CONTEXT_LENGTH=32768
+CONTEXT_LENGTH=262144
 MAX_OUTPUT_TOKENS=8192
 ```
 
@@ -44,7 +45,15 @@ model downloads**; remove unwanted ones yourself with `ollama rm NAME`.
 Use local models with tool support and a context window at least as large as
 CONTEXT_LENGTH. The generated Pi entries default to text input.
 
-Both models also receive Pi compaction overrides: with the default context,
+The default 262,144-token context replaces the old 32,768-token limit, giving
+Claude Code room for startup instructions and tools before conversation begins.
+The same setting configures Ollama's `OLLAMA_CONTEXT_LENGTH`, Claude Code's
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and Pi's context windows. Larger contexts use
+more memory and may slow inference on a 16 GB GPU. Run the full setup script
+to apply this increase to an existing installation, then restart your agents;
+`--configure-only` does not raise Ollama's server limit.
+
+All configured models also receive Pi compaction overrides: with the default context,
 16,384 tokens are reserved and 4,096 tokens of recent history are retained.
 This leaves room for responses and summaries and avoids retaining too much
 history to compact a smaller local session. The limits scale down for smaller
@@ -110,11 +119,12 @@ and `pi remove git:github.com/DietrichGebert/ponytail`.
 ## Verification and tests
 
 At the end of installation, verify.py generates a short default-model response,
-checks `/api/ps` GPU allocation, and checks ROCm detection in the current
+checks `/api/ps` GPU allocation and loaded context against `CONTEXT_LENGTH`,
+and checks ROCm detection in the current
 systemd invocation's logs. This verifies inference, not agent tool-call quality.
 Other models are downloaded and listed but are not loaded for inference tests.
 
-Validation: all eight offline configuration tests passed, Bash and
+Validation: all nine offline configuration tests passed, Bash and
 Python syntax checks passed, generated Fish configuration parsed successfully,
 and dry-run completed. The full installer has not been executed end to end;
 no packages or live agent settings were changed while creating these files.

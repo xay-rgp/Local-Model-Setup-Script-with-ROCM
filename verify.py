@@ -9,6 +9,7 @@ import urllib.request
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', required=True)
+    parser.add_argument('--context', type=int, required=True)
     args = parser.parse_args()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     base = 'http://127.0.0.1:11434'
@@ -34,6 +35,11 @@ def main():
               if canonical(item.get('name', '')) == canonical(model_name)]
     if not loaded or loaded[0].get('size_vram', 0) <= 0:
         raise SystemExit('Model generated, but GPU allocation was not detected. Check journalctl -u ollama.')
+    actual_context = loaded[0].get('context_length')
+    if actual_context != args.context:
+        raise SystemExit(f'Ollama loaded context={actual_context}, expected {args.context}. '
+                         'Check service overrides and model num_ctx parameters.')
+    print(f'Loaded context verified: {actual_context} tokens')
     # Restrict logs to the current systemd invocation; old ROCm runs are not evidence.
     invocation = subprocess.check_output(
         ['systemctl', 'show', 'ollama.service', '--property=InvocationID', '--value'], text=True).strip()

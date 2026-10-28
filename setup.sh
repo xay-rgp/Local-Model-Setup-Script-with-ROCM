@@ -151,6 +151,6 @@ echo 'Checking the installed programs, models and GPU inference...'
 claude --version
 pi --version
 ollama list
-python "$SCRIPT_DIR/verify.py" --model "$DEFAULT_MODEL"
+python "$SCRIPT_DIR/verify.py" --model "$DEFAULT_MODEL" --context "$CONTEXT_LENGTH"
 echo 'Setup complete. Open a new terminal, then run claude or pi; use /model to switch models.'
 echo 'Start new agent sessions to load Ponytail. Its help command is /ponytail-help.'

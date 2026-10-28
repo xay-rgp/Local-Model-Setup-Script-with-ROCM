@@ -4,12 +4,15 @@
 MODELS=(
   "qwen3-coder:30b"
   "orcarouter/Qwen3.8-27B-Uncensored:latest"
+  "huihui_ai/Qwen3.8-abliterated:27b"
 )
 DEFAULT_MODEL="${MODELS[0]}"
 
 # Match the context seen by both agents to Ollama's actual context allocation.
+# Use the full 262K window for the bundled models so startup context leaves
+# room for conversation instead of triggering compaction immediately.
 # Larger context consumes more VRAM and can slow large models on a 16 GB card.
-CONTEXT_LENGTH=32768
+CONTEXT_LENGTH=262144
 MAX_OUTPUT_TOKENS=8192
 KEEP_ALIVE="10m"
 
