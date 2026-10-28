@@ -96,7 +96,9 @@ def configure(home, models, default, context, max_output):
     # with a 32k local context. Scale down for smaller configured contexts.
     reserve = max(max_output, min(16384, context // 2))
     keep_recent = min(4096, (context - reserve) // 2)
-    overrides = data['pi_settings'].setdefault('compaction', {}).setdefault('modelOverrides', {})
+    compaction = data['pi_settings'].setdefault('compaction', {})
+    compaction['enabled'] = True
+    overrides = compaction.setdefault('modelOverrides', {})
     for name in models:
         overrides.setdefault(f'ollama/{name}', {}).update({
             'reserveTokens': reserve, 'keepRecentTokens': keep_recent,

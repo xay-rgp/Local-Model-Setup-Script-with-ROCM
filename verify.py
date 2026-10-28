@@ -2,6 +2,7 @@
 """Smoke-test local inference and confirm ROCm appears in the current service log."""
 import argparse
 import json
+import shlex
 import subprocess
 import urllib.request
 
@@ -10,6 +11,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', required=True)
     parser.add_argument('--context', type=int, required=True)
+    parser.add_argument('--kv-cache', choices=['f16', 'q8_0', 'q4_0'])
+    parser.add_argument('--flash-attention', choices=['0', '1'])
     args = parser.parse_args()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     base = 'http://127.0.0.1:11434'
@@ -23,6 +26,21 @@ def main():
         if result.get('error'):
             raise RuntimeError(result['error'])
         return result
+
+    # Check the effective service environment, including later drop-ins.
+    environment = subprocess.check_output(
+        ['systemctl', 'show', 'ollama.service', '--property=Environment', '--value'],
+        text=True)
+    effective = dict(item.split('=', 1) for item in shlex.split(environment) if '=' in item)
+    expected = {'OLLAMA_CONTEXT_LENGTH': str(args.context)}
+    if args.kv_cache is not None:
+        expected['OLLAMA_KV_CACHE_TYPE'] = args.kv_cache
+    if args.flash_attention is not None:
+        expected['OLLAMA_FLASH_ATTENTION'] = args.flash_attention
+    for key, value in expected.items():
+        if effective.get(key) != value:
+            raise SystemExit(f'{key}={effective.get(key)!r}, expected {value!r}. '
+                             'Check later systemd drop-ins before updating agents.')
 
     result = request('/api/generate', {
         'model': args.model, 'prompt': 'Say hello briefly.', 'stream': False,

@@ -10,11 +10,13 @@ MODE=install
 case "${1:-}" in
   --dry-run) MODE=dry-run ;;
   --configure-only) MODE=configure-only ;;
+  --tune-only) MODE=tune-only ;;
   --help|-h)
-    echo 'Usage: bash setup.sh [--dry-run | --configure-only]'
+    echo 'Usage: bash setup.sh [--dry-run | --configure-only | --tune-only]'
     echo 'Edit config.sh to choose models, default model, context, and agent versions.'
     echo '--dry-run: print the plan without modifying files or downloading anything.'
     echo '--configure-only: update agent JSON and shell PATH files; no installs or service changes.'
+    echo '--tune-only: configure/restart existing Ollama, update agents, verify inference; no installs or downloads.'
     exit 0 ;;
   '') ;;
   *) echo "Unknown option: $1" >&2; exit 2 ;;
@@ -34,13 +36,18 @@ done
 (( MAX_OUTPUT_TOKENS < CONTEXT_LENGTH )) || { echo 'Output limit must be smaller than context.' >&2; exit 2; }
 [[ "$KEEP_ALIVE" =~ ^[0-9]+[smh]$ ]] || { echo 'KEEP_ALIVE must look like 10m or 1h.' >&2; exit 2; }
 
+[[ "$FLASH_ATTENTION" == 1 || "$FLASH_ATTENTION" == 0 ]] || { echo 'FLASH_ATTENTION must be 0 or 1.' >&2; exit 2; }
+[[ "$KV_CACHE_TYPE" == f16 || "$KV_CACHE_TYPE" == q8_0 || "$KV_CACHE_TYPE" == q4_0 ]] || { echo 'Invalid KV_CACHE_TYPE.' >&2; exit 2; }
+[[ "$KV_CACHE_TYPE" == f16 || "$FLASH_ATTENTION" == 1 ]] || { echo 'Quantized KV cache requires Flash Attention.' >&2; exit 2; }
+
 if [[ "$MODE" == dry-run ]]; then
   cat <<PLAN
 Target: Arch Linux x86_64 with an AMD ROCm-supported GPU.
 1. Run a normal full Arch upgrade and install ollama, ollama-rocm,
    nodejs, npm, git, curl, python and jq (sudo pacman -Syu --needed ...).
 2. Write a backed-up systemd drop-in: ROCm only, context=$CONTEXT_LENGTH,
-   one parallel request, one loaded model, keep-alive=$KEEP_ALIVE.
+   one parallel request, one loaded model, keep-alive=$KEEP_ALIVE,
+   Flash Attention=$FLASH_ATTENTION, KV cache=$KV_CACHE_TYPE.
    Enable and restart ollama.service (interrupts active generations).
 3. Pull these models (existing downloads are reused):
 PLAN
@@ -81,12 +88,15 @@ temp_dir=$(mktemp -d)
 trap 'rm -rf -- "$temp_dir"' EXIT
 trap 'echo "Setup stopped at line $LINENO. Fix the reported error and rerun; completed downloads are reused." >&2' ERR
 
-echo 'Installing system packages with a full Arch upgrade (pacman will show its normal confirmation)...'
-sudo pacman -Syu --needed ollama ollama-rocm nodejs npm git curl python jq
-# Check the Node that agents will actually use, including an active nvm version.
-node -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a<22 || (a===22 && b<19)) process.exit(1)' || {
-  echo 'Pi requires Node.js >=22.19.0. Update your active nvm version or use /usr/bin/node.' >&2; exit 1;
-}
+if [[ "$MODE" == install ]]; then
+  echo 'Installing system packages with a full Arch upgrade (pacman will show its normal confirmation)...'
+  sudo pacman -Syu --needed ollama ollama-rocm nodejs npm git curl python jq
+  # Check the Node that agents will actually use, including an active nvm version.
+  node -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a<22 || (a===22 && b<19)) process.exit(1)' || {
+    echo 'Pi requires Node.js >=22.19.0. Update your active nvm version or use /usr/bin/node.' >&2; exit 1;
+  }
+
+fi
 
 echo 'Configuring the system Ollama service for ROCm...'
 cat > "$temp_dir/ollama.conf" <<CONF
@@ -98,8 +108,11 @@ Environment="OLLAMA_CONTEXT_LENGTH=$CONTEXT_LENGTH"
 Environment="OLLAMA_NUM_PARALLEL=1"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
 Environment="OLLAMA_KEEP_ALIVE=$KEEP_ALIVE"
+Environment="OLLAMA_FLASH_ATTENTION=$FLASH_ATTENTION"
+Environment="OLLAMA_KV_CACHE_TYPE=$KV_CACHE_TYPE"
 CONF
-dropin=/etc/systemd/system/ollama.service.d/90-local-model-setup.conf
+# Sort after existing context.conf and the older 90-local-model-setup.conf.
+dropin=/etc/systemd/system/ollama.service.d/zz-local-model-setup.conf
 sudo install -d -m 0755 /etc/systemd/system/ollama.service.d
 if sudo test -e "$dropin" && ! sudo cmp -s "$temp_dir/ollama.conf" "$dropin"; then
   sudo cp -p -- "$dropin" "$dropin.backup-$(date +%Y%m%d-%H%M%S-%N)"
@@ -117,6 +130,15 @@ for ((attempt=0; attempt<60; attempt++)); do
   sleep 1
 done
 [[ "$ready" == true ]] || { echo 'Ollama failed to start. Run: journalctl -u ollama -n 100' >&2; exit 1; }
+
+if [[ "$MODE" == tune-only ]]; then
+  # Verify the service before reducing the agents' advertised windows.
+  python "$SCRIPT_DIR/verify.py" --model "$DEFAULT_MODEL" --context "$CONTEXT_LENGTH" \
+    --kv-cache "$KV_CACHE_TYPE" --flash-attention "$FLASH_ATTENTION"
+  configure_agents
+  echo 'Tuning applied. Restart Pi/Claude; use a new session or /compact before continuing old work.'
+  exit 0
+fi
 
 echo 'Pulling the models listed in config.sh...'
 for model in "${MODELS[@]}"; do
@@ -151,6 +173,7 @@ echo 'Checking the installed programs, models and GPU inference...'
 claude --version
 pi --version
 ollama list
-python "$SCRIPT_DIR/verify.py" --model "$DEFAULT_MODEL" --context "$CONTEXT_LENGTH"
+python "$SCRIPT_DIR/verify.py" --model "$DEFAULT_MODEL" --context "$CONTEXT_LENGTH" \
+    --kv-cache "$KV_CACHE_TYPE" --flash-attention "$FLASH_ATTENTION"
 echo 'Setup complete. Open a new terminal, then run claude or pi; use /model to switch models.'
 echo 'Start new agent sessions to load Ponytail. Its help command is /ponytail-help.'

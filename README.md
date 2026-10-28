@@ -35,7 +35,7 @@ MODELS=(
   "huihui_ai/Qwen3.8-abliterated:27b"
 )
 DEFAULT_MODEL="${MODELS[0]}"
-CONTEXT_LENGTH=262144
+CONTEXT_LENGTH=65536
 MAX_OUTPUT_TOKENS=8192
 ```
 
@@ -45,23 +45,35 @@ model downloads**; remove unwanted ones yourself with `ollama rm NAME`.
 Use local models with tool support and a context window at least as large as
 CONTEXT_LENGTH. The generated Pi entries default to text input.
 
-The default 262,144-token context replaces the old 32,768-token limit, giving
-Claude Code room for startup instructions and tools before conversation begins.
-The same setting configures Ollama's `OLLAMA_CONTEXT_LENGTH`, Claude Code's
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and Pi's context windows. Larger contexts use
-more memory and may slow inference on a 16 GB GPU. Run the full setup script
-to apply this increase to an existing installation, then restart your agents;
-`--configure-only` does not raise Ollama's server limit.
+The default 65,536-token context balances tool/startup space against memory on
+this 16 GB GPU. It configures Ollama's `OLLAMA_CONTEXT_LENGTH`, Claude Code's
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and Pi's model windows together. Pi automatic
+compaction is explicitly enabled: it triggers above 49,152 tokens, reserves
+16,384 tokens for responses/summaries, and keeps 4,096 recent tokens alongside
+the summary. Overrides cover all configured models. Other model overrides
+are preserved; a previous global `compaction.enabled=false` is intentionally
+changed to `true`. Project-local settings can override global settings.
 
-All configured models also receive Pi compaction overrides: with the default context,
-16,384 tokens are reserved and 4,096 tokens of recent history are retained.
-This leaves room for responses and summaries and avoids retaining too much
-history to compact a smaller local session. The limits scale down for smaller
-contexts, and the reserve is always at least `MAX_OUTPUT_TOKENS`. Unrelated
-model overrides and an explicitly disabled compaction preference are preserved.
-After applying this fix with `--configure-only`, restart Pi, resume the affected
-session, and run `/compact` before continuing. Responses can still be truncated
-if they exceed the output limit.
+Ollama uses Flash Attention and a `q8_0` KV cache by default, with one parallel
+request and one loaded model. Q8 uses roughly half the KV-cache memory of f16,
+with a small precision tradeoff. This frees memory for model layers, but does
+not guarantee that a 27B/30B model fits entirely on the GPU or a particular
+speed. Set `KV_CACHE_TYPE="f16"` if quality regresses; quantized cache requires
+`FLASH_ATTENTION=1`. See the [Ollama FAQ](https://docs.ollama.com/faq).
+
+Apply tuning to an existing installation without upgrades, model downloads,
+or agent/plugin reinstalls:
+
+```sh
+bash /home/xay/Local-Model-Setup-Script-with-ROCM/setup.sh --tune-only
+```
+
+Finish active work first: this restarts Ollama, verifies default-model inference
+and context, then updates agent settings with backups. Restart the agents after
+it finishes. Prefer a new session for completed work. If an old conversation
+exceeds the new context, compact it **before** reducing the server limit; a
+summary request for an oversized transcript may itself exceed that limit.
+Compaction summarizes history; it does not delete project files.
 
 Claude Code automatic compaction is left enabled. Setup removes
 `DISABLE_AUTO_COMPACT` from Claude's settings, including the override written
@@ -74,7 +86,7 @@ interferes with tool use, start a fresh conversation.
 `bash setup.sh --configure-only` updates agent settings and Bash/Fish PATH
 files without downloading, installing plugins, or restarting Ollama. Use this
 only if the models are already installed and the service already has the
-desired context length. Run the full script when changing the server context.
+desired context length. Use `--tune-only` when changing server memory settings.
 
 `CLAUDE_VERSION` accepts `latest`, `stable`, or a version number. `PI_PACKAGE`
 can include a version suffix. The default is current releases. Claude Code's
@@ -86,10 +98,12 @@ find Node in non-interactive shells.
 ## What changes
 
 - System packages: Ollama, its ROCm backend, Node/npm, Git, curl, Python, jq.
-- `/etc/systemd/system/ollama.service.d/90-local-model-setup.conf`: disables
+- `/etc/systemd/system/ollama.service.d/zz-local-model-setup.conf`: disables
   Vulkan to choose ROCm, sets loopback binding, context, one parallel request,
-  one loaded model, and keep-alive. It leaves the existing model-store path
-  alone. Existing custom systemd overrides can still affect the service.
+  one loaded model, Flash Attention, Q8 KV cache, and keep-alive. It leaves the existing model-store path
+  alone. Its name sorts after the existing `context.conf` and the older
+  `90-local-model-setup.conf`, which are preserved. Later overrides can still
+  affect the service; verification checks the effective configuration.
 - Claude Code: official native installer into the current user's home.
 - Pi: npm installation under `~/.local/npm` (without dependency install scripts).
 - `~/.claude/settings.json`: local endpoint, context/output limits, model menu,
@@ -112,6 +126,7 @@ the script can be rerun. There is no automatic transaction rollback.
 
 To undo the service configuration, remove only the drop-in named above and
 run `sudo systemctl daemon-reload` and `sudo systemctl restart ollama`.
+Older drop-ins (including `context.conf`) then take effect again.
 Restore individual JSON or shell files from their backups as needed.
 Ponytail can be removed with `claude plugin uninstall ponytail@ponytail`
 and `pi remove git:github.com/DietrichGebert/ponytail`.
@@ -124,23 +139,23 @@ and checks ROCm detection in the current
 systemd invocation's logs. This verifies inference, not agent tool-call quality.
 Other models are downloaded and listed but are not loaded for inference tests.
 
-Validation: all nine offline configuration tests passed, Bash and
-Python syntax checks passed, generated Fish configuration parsed successfully,
-and dry-run completed. The full installer has not been executed end to end;
-no packages or live agent settings were changed while creating these files.
+Offline configuration tests, Bash/Python syntax checks, and dry-run are available
+below. Live ROCm performance must be checked on the host after applying tuning;
+the full installer is not covered by the offline tests.
 
 Offline development checks (no system changes):
 
 ```sh
 cd /home/xay/Local-Model-Setup-Script-with-ROCM
 bash -n setup.sh config.sh
-python -m unittest -v test_configure.py
+python -B -m unittest -v test_configure.py test_verify.py
 bash setup.sh --dry-run
 ```
 
 Files: config.sh contains preferences; setup.sh orchestrates installation;
 configure.py handles backed-up JSON/shell edits; verify.py checks GPU inference;
-test_configure.py tests configuration preservation, repeat runs and model changes.
+test_configure.py tests configuration preservation, repeat runs and model changes;
+test_verify.py tests service conflicts, model context overrides, and GPU checks.
 
 ## Official references
 
