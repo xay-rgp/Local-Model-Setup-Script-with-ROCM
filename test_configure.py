@@ -30,28 +30,39 @@ class ConfigurationTests(unittest.TestCase):
             configure(self.home, models, models[0], 32768, 8192)
 
     def test_existing_settings_and_plugins_are_preserved(self):
-        original = {'theme': 'dark', 'permissions': {'deny': ['Bash(rm *)']},
-                    'enabledPlugins': {'example@market': True},
-                    'env': {'UNRELATED': 'preserve', 'ANTHROPIC_MODEL': 'old-model',
-                            'DISABLE_AUTO_COMPACT': '1'}}
-        self.write('.claude/settings.json', original)
-        self.write('.pi/agent/settings.json', {'packages': ['git:example/repo'], 'theme': 'dark'})
+        original = {'packages': ['git:example/repo'], 'theme': 'dark'}
+        self.write('.pi/agent/settings.json', original)
         self.write('.pi/agent/models.json', {'providers': {'other': {'baseUrl': 'https://example.test'}}})
         self.run_configuration()
-        actual = self.read('.claude/settings.json')
-        for key in ['theme', 'permissions', 'enabledPlugins']:
-            self.assertEqual(actual[key], original[key])
-        self.assertEqual(actual['env']['UNRELATED'], 'preserve')
-        self.assertNotIn('ANTHROPIC_MODEL', actual['env'])
-        self.assertNotIn('DISABLE_AUTO_COMPACT', actual['env'])
+        self.assertEqual(self.read('.pi/agent/settings.json')['theme'], 'dark')
         self.assertEqual(self.read('.pi/agent/settings.json')['packages'], ['git:example/repo'])
         self.assertIn('other', self.read('.pi/agent/models.json')['providers'])
-        backups = list((self.home / '.claude').glob('settings.json.backup-*'))
+        backups = list((self.home / '.pi/agent').glob('settings.json.backup-*'))
         self.assertEqual(json.loads(backups[0].read_text()), original)
+
+    def test_claude_configuration_is_not_created(self):
+        self.run_configuration()
+        self.assertFalse((self.home / '.claude').exists())
+        self.assertEqual(self.read('.ollama/config.json')['integrations'], {
+            'pi': {'models': self.models},
+        })
+
+    def test_existing_claude_configuration_is_untouched(self):
+        path = self.home / '.claude/settings.json'
+        path.parent.mkdir()
+        # Even invalid Claude JSON must not prevent configuring Pi.
+        path.write_text('{not valid json')
+        before = (path.read_bytes(), path.stat().st_mtime_ns)
+        existing = {'models': ['previous:model'], 'custom': True}
+        self.write('.ollama/config.json', {'integrations': {'claude': existing}})
+        self.run_configuration()
+        self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+        self.assertEqual(list(path.parent.iterdir()), [path])
+        self.assertEqual(self.read('.ollama/config.json')['integrations']['claude'], existing)
+        self.assertEqual(self.read('.ollama/config.json')['integrations']['pi']['models'], self.models)
 
     def test_second_run_changes_nothing(self):
         self.run_configuration()
-        self.assertNotIn('DISABLE_AUTO_COMPACT', self.read('.claude/settings.json')['env'])
         before = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
                   for p in self.home.rglob('*') if p.is_file()}
         self.run_configuration()
@@ -89,11 +100,9 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertLess(limits['reserveTokens'], context)
                 self.assertLess(limits['keepRecentTokens'], context - limits['reserveTokens'])
 
-    def test_switching_models_updates_both_agents(self):
+    def test_switching_models_updates_pi(self):
         self.run_configuration()
         self.run_configuration(['example/new-model:latest'])
-        claude = self.read('.claude/settings.json')
-        self.assertEqual([m['model'] for m in claude['modelPicker']['options']], ['example/new-model:latest'])
         pi = self.read('.pi/agent/models.json')['providers']['ollama']['models']
         self.assertEqual([m['id'] for m in pi], ['example/new-model:latest'])
         self.assertEqual(pi[0]['contextWindow'], 32768)
@@ -101,13 +110,13 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(self.read('.pi/agent/settings.json')['defaultModel'], 'example/new-model:latest')
 
     def test_bad_existing_json_fails_before_writes(self):
-        self.write('.claude/settings.json', {'theme': 'dark'})
+        self.write('.pi/agent/settings.json', {'theme': 'dark'})
         p = self.home / '.pi/agent/models.json'
-        p.parent.mkdir(parents=True)
+        p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text('{bad json')
         with self.assertRaises(json.JSONDecodeError):
             self.run_configuration()
-        self.assertEqual(self.read('.claude/settings.json'), {'theme': 'dark'})
+        self.assertEqual(self.read('.pi/agent/settings.json'), {'theme': 'dark'})
         self.assertFalse(list(self.home.rglob('*.backup-*')))
 
     def test_invalid_limits_and_duplicates_are_rejected(self):
@@ -128,9 +137,6 @@ class ConfigurationTests(unittest.TestCase):
         models = self.models + ['huihui_ai/Qwen3.8-abliterated:27b']
         with contextlib.redirect_stdout(io.StringIO()):
             configure(self.home, models, models[0], 65536, 8192)
-        claude = self.read('.claude/settings.json')
-        self.assertEqual(claude['env']['CLAUDE_CODE_MAX_CONTEXT_TOKENS'], '65536')
-        self.assertEqual([m['model'] for m in claude['modelPicker']['options']], models)
         pi = self.read('.pi/agent/models.json')['providers']['ollama']['models']
         self.assertEqual({m['id']: m['contextWindow'] for m in pi},
                          dict.fromkeys(models, 65536))

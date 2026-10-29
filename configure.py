@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge local-model configuration into both agents; preserve unrelated settings."""
+"""Merge local-model configuration into Pi; preserve unrelated settings."""
 import argparse
 import datetime
 import json
@@ -49,38 +49,12 @@ def configure(home, models, default, context, max_output):
     if not 0 < max_output < context:
         raise ValueError('Require 0 < max output tokens < context length')
     paths = {
-        'claude': home / '.claude/settings.json',
         'pi_models': home / '.pi/agent/models.json',
         'pi_settings': home / '.pi/agent/settings.json',
         'ollama': home / '.ollama/config.json',
     }
     # Read every JSON file before writing any: invalid JSON should fail early.
     data = {key: read_json(path) for key, path in paths.items()}
-    claude = data['claude']
-    claude['model'] = default
-    claude.setdefault('env', {}).update({
-        'ANTHROPIC_BASE_URL': 'http://127.0.0.1:11434',
-        'ANTHROPIC_AUTH_TOKEN': 'ollama',
-        'ANTHROPIC_API_KEY': '',
-        'ANTHROPIC_DEFAULT_MODEL': default,
-        'ANTHROPIC_DEFAULT_OPUS_MODEL': default,
-        'ANTHROPIC_DEFAULT_SONNET_MODEL': default,
-        'ANTHROPIC_DEFAULT_HAIKU_MODEL': default,
-        'ANTHROPIC_DEFAULT_FABLE_MODEL': default,
-        'CLAUDE_CODE_MAX_CONTEXT_TOKENS': str(context),
-        'CLAUDE_CODE_MAX_OUTPUT_TOKENS': str(max_output),
-    })
-    # Remove the override written by older setup runs so Claude can compact
-    # automatically instead of stopping when the local context fills.
-    claude['env'].pop('DISABLE_AUTO_COMPACT', None)
-    # Let /model save a different choice instead of forcing the original model
-    # again at every startup through a higher-priority environment variable.
-    claude['env'].pop('ANTHROPIC_MODEL', None)
-    claude['modelPicker'] = {
-        'replaceBuiltInOptions': True,
-        'options': [{'model': name, 'label': name, 'description': 'Local Ollama model'}
-                    for name in models],
-    }
     # Only replace the Ollama provider, not other configured providers.
     provider = data['pi_models'].setdefault('providers', {}).setdefault('ollama', {})
     provider.update({
@@ -105,12 +79,11 @@ def configure(home, models, default, context, max_output):
         })
     integrations = data['ollama'].setdefault('integrations', {})
     ordered = [default] + [name for name in models if name != default]
-    for agent in ['claude', 'pi']:
-        integrations.setdefault(agent, {})['models'] = ordered
+    integrations.setdefault('pi', {})['models'] = ordered
     for key, path in paths.items():
         save(path, json.dumps(data[key], indent=2) + '\n')
 
-    # Avoid global API environment exports: only these agents use Ollama.
+    # Avoid global API environment exports: only Pi uses Ollama.
     path_script = '''# Managed by LocalModelSetupScript. Bash login/interactive PATH.
 case ":$PATH:" in
   *":$HOME/.local/npm/bin:"*) ;;
